@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-github/v48/github"
+	"github.com/google/go-github/v50/github"
 )
 
 const (
@@ -390,4 +390,66 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
+}
+
+func TestExpiryAccessor(t *testing.T) {
+	now := time.Now()
+	future := now.Add(2 * time.Hour)
+	futureRefresh := future.Add(-time.Minute)
+	past := now.Add(-2 * time.Hour)
+	pastRefresh := past.Add(-time.Minute)
+
+	for _, tc := range []struct {
+		name          string
+		token         *accessToken
+		expectErr     string
+		expectExpiry  time.Time
+		expectRefresh time.Time
+	}{
+		{
+			name: "valid",
+			token: &accessToken{
+				Token:     token,
+				ExpiresAt: future,
+			},
+			expectExpiry:  future,
+			expectRefresh: futureRefresh,
+		},
+		{
+			name: "expired",
+			token: &accessToken{
+				Token:     token,
+				ExpiresAt: past,
+			},
+			expectExpiry:  past,
+			expectRefresh: pastRefresh,
+		},
+		{
+			name:      "unset",
+			expectErr: "Expiry() = unknown, err: nil token",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := &Transport{token: tc.token}
+			expiresAt, refreshAt, err := tr.Expiry()
+			if err != nil {
+				if tc.expectErr != err.Error() {
+					t.Errorf("wrong error, expected=%q, actual=%q",
+						tc.expectErr, err.Error())
+				}
+			} else {
+				if tc.expectErr != "" {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+			if tc.expectExpiry != expiresAt {
+				t.Errorf("expiresAt mismatch, expected=%v, actual=%v",
+					tc.expectExpiry.String(), expiresAt.String())
+			}
+			if tc.expectRefresh != refreshAt {
+				t.Errorf("refreshAt mismatch, expected=%v, actual=%v",
+					tc.expectRefresh, refreshAt)
+			}
+		})
+	}
 }
